@@ -1,0 +1,21 @@
+# Servidor Web y API
+fastapi
+uvicorn
+python-dotenv
+
+# LangChain y Orquestación
+langchain
+langchain-community
+langchain-core
+langchain-google-genai
+langchain-huggingface
+
+# Base de Datos (PostgreSQL + pgvector)
+langchain-postgres
+psycopg[binary]
+pgvector
+
+# Procesamiento de Documentos y Embeddings
+pypdf
+sentence-transformers
+protobuf
