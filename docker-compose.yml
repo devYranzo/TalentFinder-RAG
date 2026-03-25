@@ -9,13 +9,12 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql
-      # El script SQL ahora está dentro de backend/scripts
       - ./backend/scripts:/docker-entrypoint-initdb.d
     networks:
       - rag_network
 
   api:
-    build: ./backend  # Docker buscará el Dockerfile aquí
+    build: ./backend
     container_name: rag_api
     depends_on:
       - db
@@ -24,7 +23,6 @@ services:
     env_file:
       - ./backend/.env
     volumes:
-      # Los PDFs ahora están en backend/CVs
       - ./backend/CVs:/app/CVs
     networks:
       - rag_network
