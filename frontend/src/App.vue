@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
+import MarkdownIt from 'markdown-it';
+
+const md = new MarkdownIt();
 
 // Estados Reactivos
 const query = ref('');
@@ -55,9 +58,24 @@ const buscar = async () => {
   }
 };
 
-const obtenerNombreArchivo = (rutaCompleta) => {
-  if (!rutaCompleta) return "Archivo desconocido";
-  return rutaCompleta.split('/').pop().split('\\').pop();
+const obtenerRutaPdf = (fuente) => {
+  if (!fuente) return '';
+  
+  // 1. Buscamos la palabra 'CVs/' en la ruta
+  const marcador = 'CVs/';
+  const indice = fuente.indexOf(marcador);
+  
+  if (indice !== -1) {
+    // 2. Extraemos solo lo que hay DESPUÉS de 'CVs/'
+    // Resultado ejemplo: "Redes fortinet/redes fortinet.pdf"
+    return fuente.substring(indice + marcador.length);
+  }
+  
+  return fuente;
+};
+
+const renderizarMarkdown = (texto) => {
+  return md.render(texto);
 };
 
 // Ciclo de vida
@@ -120,7 +138,7 @@ onUnmounted(() => {
         <div class="card shadow mb-4 border-0 border-start border-primary border-4">
           <div class="card-body">
             <h5 class="card-title text-primary"><i class="bi bi-robot"></i>Análisis de la IA</h5>
-            <p class="card-text" style="white-space: pre-wrap;">{{ respuesta }}</p>
+            <div class="card-text markdown-body" v-html="renderizarMarkdown(respuesta)"></div>
           </div>
         </div>
 
@@ -129,14 +147,11 @@ onUnmounted(() => {
           <a 
             v-for="fuente in fuentes" 
             :key="fuente" 
-            :href="'http://localhost:8000/pdfs/' + obtenerNombreArchivo(fuente)" 
+            :href="'http://localhost:8000/pdfs/' + obtenerRutaPdf(fuente)" 
             target="_blank" 
             class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
           >
-            <span>
-              <i class="bi bi-file-earmark-pdf text-danger me-2"></i> 
-              {{ obtenerNombreArchivo(fuente) }}
-            </span>
+            <span><i class="bi bi-file-earmark-pdf text-danger me-2"></i> {{ fuente.split('/').pop() }}</span>
             <span class="badge bg-primary rounded-pill">Ver PDF <i class="bi bi-box-arrow-up-right ms-1"></i></span>
           </a>
         </div>
@@ -146,8 +161,36 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-body { background-color: #f8f9fa; }
-.card-text { line-height: 1.6; color: #333; }
-.input-group-lg .form-control { border-radius: 0.5rem 0 0 0.5rem; }
-.input-group-lg .btn { border-radius: 0 0.5rem 0.5rem 0; }
+body { 
+  background-color: #f8f9fa; 
+}
+
+.card-text { 
+  line-height: 1.6; color: #333; 
+}
+
+.input-group-lg .form-control { 
+  border-radius: 0.5rem 0 0 0.5rem; 
+}
+
+.input-group-lg .btn { 
+  border-radius: 0 0.5rem 0.5rem 0; 
+}
+
+.markdown-body :deep(ul) {
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.markdown-body :deep(li) {
+  margin-bottom: 0.5rem;
+}
+
+.markdown-body :deep(strong) {
+  color: #0d6efd;
+}
+
+.markdown-body :deep(p) {
+  margin-bottom: 1rem;
+}
 </style>

@@ -15,7 +15,12 @@ class RAGEngine:
         )
 
     def index_documents(self):
-        loader = DirectoryLoader(settings.PDF_PATH, glob="./*.pdf", loader_cls=PyPDFLoader)
+        loader = DirectoryLoader(
+            settings.PDF_PATH, 
+            glob="**/*.pdf", 
+            loader_cls=PyPDFLoader,
+            recursive=True
+        )
         docs = loader.load()
 
         # 1. Obtener qué archivos YA existentes en la DB para no duplicar
@@ -36,6 +41,10 @@ class RAGEngine:
         # 2. Splitter profesional
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
         chunks = text_splitter.split_documents(new_docs)
+
+        for chunk in chunks:
+            # Reemplazamos el carácter nulo por un espacio vacío
+            chunk.page_content = chunk.page_content.replace("\x00", "")
 
         # 3. Ingesta por lotes para no saturar memoria
         print(f"Indexando {len(new_docs)} archivos nuevos en lotes...")
