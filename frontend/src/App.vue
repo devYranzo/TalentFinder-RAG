@@ -12,27 +12,59 @@ const fuentes = ref([]);
 const loading = ref(false);
 const loadingIngest = ref(false);
 const isReady = ref(false);
-const totalVectors = ref(0);
 
 let statusInterval = null;
+const totalFiles = ref(0);
+const progreso = ref(0);
+const processedDocuments = ref(0);
+const totalDocuments = ref(0);
 
 // Funciones
+const calcularProgreso = (vectoresActuales, archivosTotales, processedDocs, totalDocs) => {
+  if (totalDocs > 0 && processedDocs >= 0) {
+    let porcentaje = Math.round((processedDocs / totalDocs) * 100);
+
+    return Math.min(porcentaje, 95); // Máximo 95% mientras está indexando
+  }
+  
+  // Fallback: usar vectores
+  if (archivosTotales === 0) return 0;
+  const metaEstimada = archivosTotales * 12; 
+  let porcentaje = Math.round((vectoresActuales / metaEstimada) * 100);
+  return Math.min(porcentaje, 95);
+};
+
 const checkStatus = async () => {
-  try {
-    const res = await axios.get('http://localhost:8000/status');
-    isReady.value = res.data.is_ready;
-    totalVectors.value = res.data.total_vectors;
-  } catch (e) {
-    console.error("Backend no disponible");
+  const res = await axios.get('http://localhost:8000/status');
+  const { total_vectors, total_files, is_indexing, processed_documents, total_documents } = res.data;
+
+  totalFiles.value = total_files;
+  processedDocuments.value = processed_documents || 0;
+  totalDocuments.value = total_documents || 0;
+  
+  if (is_indexing) {
+    progreso.value = calcularProgreso(total_vectors, total_files, processed_documents, total_documents);
+  } else {
+    // Si ya no está indexando
+    if (loadingIngest.value) {
+      progreso.value = 100;
+      loadingIngest.value = false;
+      isReady.value = total_vectors > 0;
+      
+      if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+      }
+    }
   }
 };
 
 const encenderMotor = async () => {
   loadingIngest.value = true;
+  progreso.value = 0; // Resetear progreso
   try {
     await axios.post('http://localhost:8000/ingest');
-    // Polling cada 3 segundos para actualizar el contador mientras ingesta
-    statusInterval = setInterval(checkStatus, 3000);
+    statusInterval = setInterval(checkStatus, 2000);
   } catch (error) {
     alert("Error al iniciar la ingesta");
     loadingIngest.value = false;
@@ -67,7 +99,6 @@ const obtenerRutaPdf = (fuente) => {
   
   if (indice !== -1) {
     // 2. Extraemos solo lo que hay DESPUÉS de 'CVs/'
-    // Resultado ejemplo: "Redes fortinet/redes fortinet.pdf"
     return fuente.substring(indice + marcador.length);
   }
   
@@ -81,7 +112,18 @@ const renderizarMarkdown = (texto) => {
 // Ciclo de vida
 onMounted(() => {
   checkStatus();
-  setInterval(checkStatus, 15000);
+  const generalInterval = setInterval(() => {
+    if (!loadingIngest.value) {
+      checkStatus();
+    }
+  }, 15000);
+  
+  const cleanup = () => {
+    if (statusInterval) clearInterval(statusInterval);
+    clearInterval(generalInterval);
+  };
+
+  window.$cleanup = cleanup;
 });
 
 onUnmounted(() => {
@@ -92,7 +134,7 @@ onUnmounted(() => {
 <template>
   <div class="container mt-5">
     <header class="text-center mb-5">
-      <h1 class="display-4"><i class="bi bi-cpu"></i> TalentFinder AI</h1>
+      <h1 class="display-4"><i class="bi bi-cpu"></i>TalentFinder AI</h1>
       <p class="lead text-muted">Búsqueda semántica en base de datos de CVs</p>
       
       <div class="d-flex justify-content-center align-items-center gap-3 mt-4">
@@ -106,10 +148,27 @@ onUnmounted(() => {
           <i v-if="isReady" class="bi bi-check-circle-fill me-1"></i>
           {{ isReady ? 'Motor Listo' : 'Encender Motor' }}
         </button>
-        <span class="badge bg-light text-dark border shadow-sm p-2">
-          <i class="bi bi-database-fill-gear text-primary"></i> 
-          {{ totalVectors.toLocaleString() }} vectores indexados
-        </span>
+      </div>
+
+      <div v-if="loadingIngest" class="mt-4 w-75 mx-auto">
+        <div class="d-flex justify-content-between mb-1">
+          <span class="text-muted small">
+            <i class="bi bi-gear-fill spin"></i> Procesando 
+            <strong>{{ processedDocuments }}/{{ totalDocuments }}</strong> documentos...
+          </span>
+          <span class="text-primary fw-bold">{{ progreso }}%</span>
+        </div>
+        
+        <div class="progress" style="height: 10px;">
+          <div 
+            class="progress-bar progress-bar-striped progress-bar-animated" 
+            role="progressbar" 
+            :style="{ width: progreso + '%' }" 
+            :aria-valuenow="progreso" 
+            aria-valuemin="0" 
+            aria-valuemax="100"
+          ></div>
+        </div>
       </div>
     </header>
 
@@ -175,6 +234,25 @@ body {
 
 .input-group-lg .btn { 
   border-radius: 0 0.5rem 0.5rem 0; 
+}
+
+.spin {
+  animation: rotation 2s infinite linear;
+  display: inline-block;
+}
+
+@keyframes rotation {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(359deg); }
+}
+
+.progress {
+  border-radius: 10px;
+  background-color: #e9ecef;
+}
+
+.x-small {
+  font-size: 0.75rem;
 }
 
 .markdown-body :deep(ul) {
