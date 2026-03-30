@@ -1,218 +1,211 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import axios from 'axios';
 import MarkdownIt from 'markdown-it';
 
-const md = new MarkdownIt();
+// --- CONFIGURACIÓN ---
+const md = new MarkdownIt({ html: true, linkify: true });
 
-// Estados Reactivos
+// --- ESTADOS REACTIVOS ---
 const query = ref('');
 const respuesta = ref('');
-const fuentes = ref([]);
 const loading = ref(false);
 const loadingIngest = ref(false);
-const isReady = ref(false);
+const progreso = ref(0);
+const motorStatus = ref({
+  is_ready: false,
+  total_vectors: 0,
+  total_files: 0,
+  is_indexing: false
+});
 
 let statusInterval = null;
-const totalFiles = ref(0);
-const progreso = ref(0);
-const processedDocuments = ref(0);
-const totalDocuments = ref(0);
 
-// Funciones
-const calcularProgreso = (vectoresActuales, archivosTotales, processedDocs, totalDocs) => {
-  if (totalDocs > 0 && processedDocs >= 0) {
-    let porcentaje = Math.round((processedDocs / totalDocs) * 100);
+// --- PROPIEDADES COMPUTADAS ---
+const isReady = computed(() => motorStatus.value.is_ready || motorStatus.value.total_vectors > 0);
+const canSearch = computed(() => isReady.value && !loading.value && query.value.trim().length > 0);
 
-    return Math.min(porcentaje, 95); // Máximo 95% mientras está indexando
+// --- LÓGICA DE ESTADO (POLLING INTELIGENTE) ---
+const checkStatus = async () => {
+  try {
+    const { data } = await axios.get('http://localhost:8000/status');
+    motorStatus.value = data;
+
+    if (data.is_indexing) {
+      loadingIngest.value = true;
+      
+      if (data.total_documents > 0) {
+        const porcentajeReal = Math.round((data.processed_documents / data.total_documents) * 100);
+        
+        progreso.value = Math.min(porcentajeReal, 99); 
+      }
+    } else {
+      if (loadingIngest.value) {
+        progreso.value = 100;
+        setTimeout(() => { 
+          loadingIngest.value = false;
+          motorStatus.value.is_ready = true;
+        }, 1500);
+      }
+      detenerIntervalo();
+    }
+  } catch (e) {
+    console.error("Error en polling:", e);
   }
-  
-  // Fallback: usar vectores
-  if (archivosTotales === 0) return 0;
-  const metaEstimada = archivosTotales * 12; 
-  let porcentaje = Math.round((vectoresActuales / metaEstimada) * 100);
-  return Math.min(porcentaje, 95);
 };
 
-const checkStatus = async () => {
-  const res = await axios.get('http://localhost:8000/status');
-  const { total_vectors, total_files, is_indexing, processed_documents, total_documents } = res.data;
+const iniciarIntervalo = () => {
+  if (!statusInterval) {
+    statusInterval = setInterval(checkStatus, 2500);
+  }
+};
 
-  totalFiles.value = total_files;
-  processedDocuments.value = processed_documents || 0;
-  totalDocuments.value = total_documents || 0;
-  
-  if (is_indexing) {
-    progreso.value = calcularProgreso(total_vectors, total_files, processed_documents, total_documents);
-  } else {
-    // Si ya no está indexando
-    if (loadingIngest.value) {
-      progreso.value = 100;
-      loadingIngest.value = false;
-      isReady.value = total_vectors > 0;
-      
-      if (statusInterval) {
-        clearInterval(statusInterval);
-        statusInterval = null;
-      }
-    }
+const detenerIntervalo = () => {
+  if (statusInterval) {
+    clearInterval(statusInterval);
+    statusInterval = null;
   }
 };
 
 const encenderMotor = async () => {
+  if (loadingIngest.value) return;
   loadingIngest.value = true;
-  progreso.value = 0; // Resetear progreso
+  progreso.value = 0;
   try {
     await axios.post('http://localhost:8000/ingest');
-    statusInterval = setInterval(checkStatus, 2000);
+    iniciarIntervalo();
   } catch (error) {
-    alert("Error al iniciar la ingesta");
     loadingIngest.value = false;
+    alert("No se pudo iniciar el proceso de ingesta.");
   }
 };
 
 const buscar = async () => {
-  if (!query.value || !isReady.value) return;
-  
+  if (!canSearch.value) return;
   loading.value = true;
   respuesta.value = '';
-  
   try {
     const res = await axios.get(`http://localhost:8000/search`, {
       params: { q: query.value }
     });
     respuesta.value = res.data.answer;
-    fuentes.value = res.data.sources;
   } catch (error) {
-    alert("Error en la conexión. Es posible que el servidor esté procesando demasiados datos.");
+    alert("Error en la búsqueda. El servidor podría estar saturado.");
   } finally {
     loading.value = false;
   }
 };
 
-const obtenerRutaPdf = (fuente) => {
-  if (!fuente) return '';
+// --- GESTIÓN DE PDF Y RENDERIZADO ---
+window.abrirArchivoCV = (ruta) => {
+  // Limpiamos la ruta por si la IA añade "CVs/" al principio
+  const rutaLimpia = ruta.replace(/^CVs\//, '');
+  const url = `http://localhost:8000/pdfs/${rutaLimpia}`;
+  window.open(url, '_blank');
+};
+
+const renderizarRespuesta = (texto) => {
+  if (!texto) return '';
+  let html = md.render(texto);
   
-  // 1. Buscamos la palabra 'CVs/' en la ruta
-  const marcador = 'CVs/';
-  const indice = fuente.indexOf(marcador);
-  
-  if (indice !== -1) {
-    // 2. Extraemos solo lo que hay DESPUÉS de 'CVs/'
-    return fuente.substring(indice + marcador.length);
+  // Reemplaza el tag [BOTON_CV:ruta] por un botón real
+  const regex = /\[BOTON_CV:(.*?)\]/g;
+  return html.replace(regex, (match, ruta) => `
+    <div class="mt-2 mb-4">
+      <button onclick="window.abrirArchivoCV('${ruta.trim()}')" class="btn btn-sm btn-outline-primary shadow-sm rounded-pill px-3">
+        <i class="bi bi-file-earmark-pdf-fill me-1"></i> Abrir Curriculum Vitae
+      </button>
+    </div>
+  `);
+};
+
+// --- CICLO DE VIDA ---
+onMounted(async () => {
+  await checkStatus();
+  if (motorStatus.value.is_indexing) {
+    iniciarIntervalo();
   }
-  
-  return fuente;
-};
-
-const renderizarMarkdown = (texto) => {
-  return md.render(texto);
-};
-
-// Ciclo de vida
-onMounted(() => {
-  checkStatus();
-  const generalInterval = setInterval(() => {
-    if (!loadingIngest.value) {
-      checkStatus();
-    }
-  }, 15000);
-  
-  const cleanup = () => {
-    if (statusInterval) clearInterval(statusInterval);
-    clearInterval(generalInterval);
-  };
-
-  window.$cleanup = cleanup;
 });
 
 onUnmounted(() => {
-  if (statusInterval) clearInterval(statusInterval);
+  detenerIntervalo();
 });
 </script>
 
 <template>
-  <div class="container mt-5">
+  <div class="container pt-5">
     <header class="text-center mb-5">
-      <h1 class="display-4"><i class="bi bi-cpu"></i>TalentFinder AI</h1>
-      <p class="lead text-muted">Búsqueda semántica en base de datos de CVs</p>
-      
-      <div class="d-flex justify-content-center align-items-center gap-3 mt-4">
+      <h1 class="fw-bold">TalentFinder <span class="text-primary text-gradient">AI</span></h1>
+      <p class="text-muted lead">Buscador inteligente de perfiles y análisis de CVs</p>
+
+      <div class="mt-4">
         <button 
           @click="encenderMotor" 
-          :disabled="loadingIngest" 
-          class="btn btn-sm shadow-sm"
-          :class="isReady ? 'btn-success' : 'btn-outline-warning'"
+          :disabled="isReady || loadingIngest"
+          :class="['btn px-5 py-2 fw-bold shadow-sm border-0 transition-all', isReady ? 'btn-success' : 'btn-warning text-dark']"
         >
-          <span v-if="loadingIngest" class="spinner-border spinner-border-sm me-2"></span>
-          <i v-if="isReady" class="bi bi-check-circle-fill me-1"></i>
-          {{ isReady ? 'Motor Listo' : 'Encender Motor' }}
+          <i :class="['bi me-2', isReady ? 'bi-check-circle-fill' : 'bi-lightning-charge-fill']"></i>
+          {{ isReady ? 'Motor Listo para Buscar' : 'Encender Motor de Análisis' }}
         </button>
       </div>
 
-      <div v-if="loadingIngest" class="mt-4 w-75 mx-auto">
-        <div class="d-flex justify-content-between mb-1">
-          <span class="text-muted small">
-            <i class="bi bi-gear-fill spin"></i> Procesando 
-            <strong>{{ processedDocuments }}/{{ totalDocuments }}</strong> documentos...
-          </span>
-          <span class="text-primary fw-bold">{{ progreso }}%</span>
+      <transition name="fade">
+        <div v-if="loadingIngest" class="mt-5 p-4 border rounded-4 bg-white shadow-sm mx-auto" style="max-width: 600px;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="small text-secondary fw-bold">
+              <i class="bi bi-arrow-repeat spin me-2"></i>Procesando documentos...
+            </span>
+            <span class="badge bg-primary rounded-pill">{{ progreso }}%</span>
+          </div>
+          <div class="progress" style="height: 12px; border-radius: 6px;">
+            <div 
+              class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+              :style="{ width: progreso + '%' }"
+            ></div>
+          </div>
+          <p class="x-small text-muted mt-2 mb-0">Esto puede tardar unos minutos dependiendo del volumen de archivos.</p>
         </div>
-        
-        <div class="progress" style="height: 10px;">
-          <div 
-            class="progress-bar progress-bar-striped progress-bar-animated" 
-            role="progressbar" 
-            :style="{ width: progreso + '%' }" 
-            :aria-valuenow="progreso" 
-            aria-valuemin="0" 
-            aria-valuemax="100"
-          ></div>
-        </div>
-      </div>
+      </transition>
     </header>
 
-    <div class="row justify-content-center mb-4">
-      <div class="col-md-8">
-        <div class="input-group input-group-lg shadow-sm" :style="{ opacity: isReady ? 1 : 0.5 }">
-          <input 
-            v-model="query" 
-            @keyup.enter="isReady && buscar()"
-            type="text" 
-            class="form-control" 
-            :placeholder="isReady ? 'Ej: Experto en Python...' : 'Active el motor primero...'"
-            :disabled="!isReady || loading"
-          >
-          <button @click="buscar" class="btn btn-primary" :disabled="!isReady || loading || !query">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-            <i v-else class="bi bi-search me-1"></i>
-            Buscar
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="respuesta" class="row justify-content-center">
-      <div class="col-md-10">
-        <div class="card shadow mb-4 border-0 border-start border-primary border-4">
-          <div class="card-body">
-            <h5 class="card-title text-primary"><i class="bi bi-robot"></i>Análisis de la IA</h5>
-            <div class="card-text markdown-body" v-html="renderizarMarkdown(respuesta)"></div>
+    <transition name="slide">
+      <div v-if="respuesta" class="row justify-content-center">
+        <div class="col-lg-10">
+          <div class="card shadow border-0 rounded-4 overflow-hidden result-card mb-5">
+            <div class="card-header bg-primary text-white py-3 px-4 d-flex align-items-center">
+              <i class="bi bi-stars fs-4 me-2"></i>
+              <h5 class="mb-0 fw-bold">Análisis de los Mejores Candidatos</h5>
+            </div>
+            <div class="card-body p-4 p-md-5">
+              <div class="markdown-body" v-html="renderizarRespuesta(respuesta)"></div>
+            </div>
           </div>
         </div>
+      </div>
+    </transition>
 
-        <h5 class="mb-3"><i class="bi bi-journal-check"></i> Fuentes Relevantes (Haz clic para ver):</h5>
-        <div class="list-group shadow-sm">
-          <a 
-            v-for="fuente in fuentes" 
-            :key="fuente" 
-            :href="'http://localhost:8000/pdfs/' + obtenerRutaPdf(fuente)" 
-            target="_blank" 
-            class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-          >
-            <span><i class="bi bi-file-earmark-pdf text-danger me-2"></i> {{ fuente.split('/').pop() }}</span>
-            <span class="badge bg-primary rounded-pill">Ver PDF <i class="bi bi-box-arrow-up-right ms-1"></i></span>
-          </a>
+    <div class="sticky-search-container">
+      <div class="row justify-content-center">
+        <div class="col-lg-8">
+          <div class="search-container shadow-lg rounded-pill p-1 bg-white border border-light">
+            <div class="input-group input-group-lg">
+              <span class="input-group-text bg-transparent border-0 ps-4">
+                <i class="bi bi-search text-primary opacity-50"></i>
+              </span>
+              <input 
+                v-model="query" 
+                @keyup.enter="buscar"
+                type="text" 
+                class="form-control border-0 rounded-pill shadow-none ps-2"
+                :placeholder="isReady ? 'Ej: Ingeniero de redes con certificación CCNP...' : 'Active el motor para buscar...'"
+                :disabled="!isReady || loading"
+              >
+              <button @click="buscar" class="btn btn-primary rounded-pill px-4 mx-1 fw-bold my-1 shadow" :disabled="!canSearch">
+                <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+                {{ loading ? 'Analizando...' : 'Buscar' }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -220,55 +213,88 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-body { 
-  background-color: #f8f9fa; 
+.container { 
+  max-width: 1100px;
 }
 
-.card-text { 
-  line-height: 1.6; color: #333; 
-}
-
-.input-group-lg .form-control { 
-  border-radius: 0.5rem 0 0 0.5rem; 
-}
-
-.input-group-lg .btn { 
-  border-radius: 0 0.5rem 0.5rem 0; 
+.transition-all { 
+  transition: all 0.3s ease; 
 }
 
 .spin {
-  animation: rotation 2s infinite linear;
+  animation: rotation 1.5s infinite linear;
   display: inline-block;
 }
 
-@keyframes rotation {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(359deg); }
+@keyframes rotation { 
+  from { transform: rotate(0deg); } 
+  to { transform: rotate(359deg); } 
 }
 
-.progress {
-  border-radius: 10px;
-  background-color: #e9ecef;
+.sticky-search-container {
+  position: sticky;
+  bottom: 1rem;  
+  z-index: 20;
+  transition: all 0.3s ease;
 }
 
-.x-small {
-  font-size: 0.75rem;
+.search-container {
+  display: flex;
+  transition: transform 0.2s;
 }
 
-.markdown-body :deep(ul) {
-  padding-left: 1.5rem;
+.search-container:focus-within {
+  transform: scale(1.02);
+}
+
+.markdown-body :deep(h3) {
+  font-size: 1.4rem;
+  color: #0d6efd;
+  border-bottom: 2px solid #f0f4f8;
+  padding-bottom: 0.5rem;
+  margin-top: 2rem;
   margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
 }
 
-.markdown-body :deep(li) {
-  margin-bottom: 0.5rem;
+.markdown-body :deep(h3::before) {
+  content: "Candidato";
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  background: #0d6efd;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-right: 10px;
 }
 
 .markdown-body :deep(strong) {
-  color: #0d6efd;
+  color: #2c3e50;
+  font-weight: 700;
 }
 
-.markdown-body :deep(p) {
-  margin-bottom: 1rem;
+.markdown-body :deep(ul) {
+  padding-left: 1.2rem;
+  margin-bottom: 1.5rem;
+}
+
+.markdown-body :deep(li) {
+  margin-bottom: 0.4rem;
+  position: relative;
+}
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.4s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.slide-enter-active { transition: all 0.5s ease-out; }
+.slide-enter-from { transform: translateY(30px); opacity: 0; }
+
+.x-small { font-size: 0.75rem; }
+.text-gradient {
+  background: linear-gradient(90deg, #0d6efd, #6610f2);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 </style>

@@ -93,16 +93,27 @@ class RAGEngine:
         ])
 
         prompt = ChatPromptTemplate.from_template(
-            """Eres un asistente de RRHH estricto. 
-            TU REGLA DE ORO: Responde ÚNICAMENTE basándote en el contexto proporcionado abajo.
-            
+            """Eres un experto en Reclutamiento IT (Headhunter). 
+            Tu objetivo es analizar los CVs proporcionados y seleccionar a los 5 MEJORES candidatos que encajen con la búsqueda.
+
             CONTEXTO DE LOS CVs:
             {context}
-            
-            INSTRUCCIONES:
-            1. Si la información no está en el contexto, di exactamente: "Lo siento, no encuentro información sobre eso en los CVs cargados".
-            2. No uses tu conocimiento general.
-            3. Si mencionas a alguien, indica de qué archivo viene la información.
+
+            REGLAS DE RESPUESTA:
+            1. Si hay menos de 5, muestra todos los que encajen.
+            2. Usa una lista numerada del 1 al 5.
+            3. Para cada candidato usa este formato EXACTO:
+            ### [Nombre del Candidato]
+            [BOTON_CV:{{nombre_archivo_pdf}}]
+            **Por qué encaja:** [Resumen de 2 líneas de su encaje con la búsqueda]
+            **Experiencia Clave:** [Lista de puntos con tecnologías/proyectos relevantes]
+            **Certificaciones:** [Menciona las más importantes]
+
+            INSTRUCCIÓN CRÍTICA: Sustituye {{nombre_archivo_pdf}} por la ruta exacta del archivo 
+            que aparece en el contexto (ejemplo: CVs/Informatica/juan.pdf). 
+            No inventes la ruta, úsala tal cual viene en FUENTE.
+                        
+            4. Si no encuentras a nadie, di: "Lo siento, no he encontrado perfiles que coincidan con esos criterios".
             
             Pregunta del reclutador: {question}"""
         )
