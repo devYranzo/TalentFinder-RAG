@@ -1,11 +1,10 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: 'http://192.168.20.140:8000',
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Opción recomendada: Exportar un objeto con las funciones
 export default {
   async getStatus() {
     const response = await apiClient.get('/status');
@@ -21,7 +20,8 @@ export default {
     return apiClient.get('/search', { params: { q: query } });
   },
 
-  ingresarDocumentos() {
-    return apiClient.post('/ingest');
+  getPdfUrl(ruta) {
+    const rutaLimpia = ruta.replace(/^CVs\//, '');
+    return `${apiClient.defaults.baseURL}/pdfs/${rutaLimpia}`;
   },
 };

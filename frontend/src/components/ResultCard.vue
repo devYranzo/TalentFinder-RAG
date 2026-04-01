@@ -1,5 +1,6 @@
 <script setup>
 import MarkdownIt from 'markdown-it';
+import api from '@/services/api';
 
 const md = new MarkdownIt({ html: true, linkify: true });
 
@@ -13,8 +14,7 @@ defineEmits(['copiar']);
 // Registramos la función globalmente para que los botones generados dinámicamente
 // dentro del HTML renderizado puedan invocarla.
 window.abrirArchivoCV = (ruta) => {
-  const rutaLimpia = ruta.replace(/^CVs\//, '');
-  const url = `http://localhost:8000/pdfs/${rutaLimpia}`;
+  const url = api.getPdfUrl(ruta);
   window.open(url, '_blank');
 };
 
@@ -61,11 +61,6 @@ const renderizarRespuesta = (texto) => {
 
           <div class="card-body p-4 p-md-5">
             <div class="markdown-body" v-html="renderizarRespuesta(respuesta)"></div>
-          </div>
-
-          <div class="card-footer text-muted text-center">
-            Los resultados son generados por Gemini AI, puede cometer errores. Por favor revisa el
-            resultado
           </div>
         </div>
       </div>
