@@ -9,7 +9,7 @@ defineProps({
 
 <template>
   <transition name="fade">
-    <div class="mt-5 p-4 border rounded-4 bg-white shadow-sm mx-auto" style="max-width: 600px">
+    <div class="mt-5 p-4 border rounded-4 bg-white shadow-sm mx-auto mb-2" style="max-width: 600px">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <span class="small text-secondary fw-bold">
           <i class="bi bi-arrow-repeat spin me-2"></i>Procesando documentos...

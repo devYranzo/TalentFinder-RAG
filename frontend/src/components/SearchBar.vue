@@ -12,7 +12,12 @@ const emit = defineEmits(['update:modelValue', 'buscar']);
 <template>
   <div class="row justify-content-center mb-5">
     <div class="col-lg-8">
-      <div class="search-container shadow-lg rounded-pill p-1 bg-white border border-light">
+      <div
+        :class="[
+          'search-container shadow-lg rounded-pill p-1 bg-white border border-light',
+          isReady ? 'd-flex' : 'd-none',
+        ]"
+      >
         <div class="input-group input-group-lg">
           <span class="input-group-text bg-transparent border-0 ps-4">
             <i class="bi bi-search text-primary opacity-50"></i>
@@ -24,9 +29,7 @@ const emit = defineEmits(['update:modelValue', 'buscar']);
             type="text"
             class="form-control border-0 rounded-pill shadow-none ps-2"
             :placeholder="
-              isReady
-                ? 'Ej: Ingeniero de redes con certificación CCNP...'
-                : 'Active el motor para buscar...'
+              isReady ? 'Ej: Experto en redes Cisco...' : 'Active el motor para buscar...'
             "
             :disabled="!isReady || loading"
           />
