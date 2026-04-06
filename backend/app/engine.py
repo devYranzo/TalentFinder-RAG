@@ -25,8 +25,8 @@ class RAGEngine:
 
         try:
             loader = DirectoryLoader(
-                settings.PDF_PATH, 
-                glob="**/*.pdf", 
+                settings.PDF_PATH,
+                glob="**/*.pdf",
                 loader_cls=PyPDFLoader,
                 recursive=True
             )
@@ -60,7 +60,7 @@ class RAGEngine:
 
             # 3. Ingesta por lotes para no saturar memoria
             print(f"Indexando {len(new_docs)} archivos nuevos en lotes...")
-            
+
             # Procesar por lotes y actualizar progreso
             lotes = [chunks[i:i+100] for i in range(0, len(chunks), 100)]
             for lote_idx, lote in enumerate(lotes):
@@ -83,17 +83,17 @@ class RAGEngine:
 
     async def query(self, question: str):
         """Busca en vectores y responde con el LLM."""
-        retriever = self.vector_store.as_retriever(search_kwargs={"k": 5})
-        
+        retriever = self.vector_store.as_retriever(search_kwargs={"k": 15})
+
         context_docs = retriever.invoke(question)
-        
+
         context_text = "\n\n".join([
-            f"FUENTE: {d.metadata.get('source')}\n{d.page_content}" 
+            f"FUENTE: {d.metadata.get('source')}\n{d.page_content}"
             for d in context_docs
         ])
 
         prompt = ChatPromptTemplate.from_template(
-            """Eres un experto en Reclutamiento IT (Headhunter). 
+            """Eres un experto en Reclutamiento IT (Headhunter).
             Tu objetivo es analizar los CVs proporcionados y seleccionar a los 5 MEJORES candidatos que encajen con la búsqueda.
 
             CONTEXTO DE LOS CVs:
@@ -107,21 +107,25 @@ class RAGEngine:
             [BOTON_CV:{{nombre_archivo_pdf}}]
             **Por qué encaja:** [Resumen de 2 líneas de su encaje con la búsqueda]
             **Experiencia Clave:** [Lista de puntos con tecnologías/proyectos relevantes]
-            **Certificaciones:** [Menciona las más importantes]
+            **Estudios:** [Extrae el título académico, universidad o formación principal. Si no aparece explícitamente, busca en todo el contexto proporcionado. Si es un perfil senior y no se menciona, indica 'Formación técnica superior según trayectoria']
+            **Certificaciones/Otros estudios:** [Enumera certificaciones (AWS, Scrum, CCNA, etc.) o cursos relevantes encontrados]
 
-            INSTRUCCIÓN CRÍTICA: Sustituye {{nombre_archivo_pdf}} por la ruta exacta del archivo 
-            que aparece en el contexto (ejemplo: CVs/Informatica/juan.pdf). 
+            INSTRUCCIÓN CRÍTICA: Sustituye {{nombre_archivo_pdf}} por la ruta exacta del archivo
+            que aparece en el contexto (ejemplo: CVs/Informatica/juan.pdf).
             No inventes la ruta, úsala tal cual viene en FUENTE.
-                        
+
+            INSTRUCCIÓN CRÍTICA: Analiza CUIDADOSAMENTE cada fragmento del contexto para no omitir la formación académica.
+            Asegúrate de que el nombre del archivo en [BOTON_CV:...] sea el que aparece en 'source' o 'metadata'.
+
             4. Si no encuentras a nadie, di: "Lo siento, no he encontrado perfiles que coincidan con esos criterios".
-            
+
             Pregunta del reclutador: {question}"""
         )
-        
+
         chain = prompt | self.llm
-        
+
         response = await chain.ainvoke({"context": context_text, "question": question})
-        
+
         return {
             "answer": response.content,
             "sources": list(set([d.metadata.get("source") for d in context_docs]))
@@ -130,8 +134,8 @@ class RAGEngine:
     async def get_vector_count(self):
         """Calcula cuántos registros hay en la tabla de embeddings."""
         try:
-            from .database import engine as db_engine 
-            
+            from .database import engine as db_engine
+
             async with db_engine.connect() as conn:
                 result = await conn.execute(text("SELECT count(*) FROM langchain_pg_embedding"))
                 count = result.scalar()
