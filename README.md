@@ -23,23 +23,6 @@
 
 ---
 
-## 🚀 Instalación y Despliegue
-
-### Requisitos Previos
-
-- Docker y Docker Compose instalado.
-- API Key de Gemini AI.
-
-### Pasos para arrancar
-
-1. **Clonar el repositorio:**
-   ```bash
-   git clone [https://github.com/tu-usuario/talentfinder-rag.git](https://github.com/tu-usuario/talentfinder-rag.git)
-   cd talentfinder-rag
-   ```
-
----
-
 ## 🏗️ Arquitectura del Sistema
 
 El flujo de trabajo sigue el estándar RAG para garantizar respuestas precisas basadas únicamente en los documentos proporcionados:
@@ -56,14 +39,14 @@ El flujo de trabajo sigue el estándar RAG para garantizar respuestas precisas b
 ### Requisitos Previos
 
 - Docker y Docker Compose instalados.
-- API Key de OpenAI válida.
+- API Key de GeminiAI válida.
 
 ### Pasos para arrancar
 
 1.  **Clonar el repositorio:**
 
     ```bash
-    git clone [https://github.com/tu-usuario/talentfinder-rag.git](https://github.com/tu-usuario/talentfinder-rag.git)
+    git clone https://github.com/devYranzo/RAG_Automation.git
     cd talentfinder-rag
     ```
 
