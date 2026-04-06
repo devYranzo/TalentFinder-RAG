@@ -13,7 +13,9 @@ export function useMotorStatus() {
 
   let statusInterval = null;
 
-  const isReady = computed(() => motorStatus.value.is_ready || motorStatus.value.total_vectors > 0);
+  const isReady = computed(
+    () => motorStatus.value.total_vectors > 0 && !motorStatus.value.is_indexing
+  );
 
   const checkStatus = async () => {
     try {
