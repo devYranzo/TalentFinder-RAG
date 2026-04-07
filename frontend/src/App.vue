@@ -8,14 +8,19 @@ import { useMotorStatus } from './composables/useMotorStatus';
 import { useSearch } from './composables/useSearch';
 
 // --- Composables ---
-const { isReady, loadingIngest, progreso, encenderMotor } = useMotorStatus();
+const { isReady, loadingIngest, progreso, encenderMotor, reindexar } = useMotorStatus();
 const { query, respuesta, loading, copiado, canSearch, buscar, copiarAlPortapapeles } =
   useSearch(isReady);
 </script>
 
 <template>
-  <div class="container pt-5">
-    <Header :is-ready="isReady" :loading-ingest="loadingIngest" @encender="encenderMotor" />
+  <div class="container pt-3">
+    <Header
+      :is-ready="isReady"
+      :loading-ingest="loadingIngest"
+      @encender="encenderMotor"
+      @reindexar="reindexar"
+    />
 
     <IngestProgress v-if="loadingIngest" :progreso="progreso" />
 

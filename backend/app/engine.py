@@ -20,6 +20,7 @@ class RAGEngine:
         self.total_documents = 0
 
     def index_documents(self):
+        """Indexa solo documentos nuevos (no duplica los existentes)"""
         self.is_indexing = True
         self.processed_documents = 0
 
@@ -75,6 +76,73 @@ class RAGEngine:
             return len(chunks)
         except Exception as e:
             print(f"Error durante indexación: {e}")
+            return 0
+        finally:
+            self.is_indexing = False
+            self.processed_documents = 0
+            self.total_documents = 0
+
+    async def reindex_all_documents(self):
+        """Elimina todos los vectores existentes y vuelve a indexar todos los documentos desde cero"""
+        self.is_indexing = True
+        self.processed_documents = 0
+
+        try:
+            # 1. Eliminar todos los vectores existentes
+            try:
+                print("Eliminando vectores existentes...")
+                from .database import engine as db_engine
+
+                # CAMBIO AQUÍ: Usar async with
+                async with db_engine.begin() as conn:
+                    await conn.execute(text("DELETE FROM langchain_pg_embedding"))
+
+                print("Vectores eliminados correctamente.")
+            except Exception as e:
+                print(f"Error al eliminar vectores: {e}")
+                raise
+
+            # 2. Cargar todos los documentos
+            loader = DirectoryLoader(
+                settings.PDF_PATH,
+                glob="**/*.pdf",
+                loader_cls=PyPDFLoader,
+                recursive=True
+            )
+            docs = loader.load()
+
+            if not docs:
+                print("No se encontraron documentos para indexar.")
+                return 0
+
+            self.total_documents = len(docs)
+            print(f"Se encontraron {len(docs)} documentos para reindexar.")
+
+            # 3. Splitter profesional
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+            chunks = text_splitter.split_documents(docs)
+
+            for chunk in chunks:
+                # Reemplazamos el carácter nulo por un espacio vacío
+                chunk.page_content = chunk.page_content.replace("\x00", "")
+
+            # 4. Ingesta por lotes
+            print(f"Reindexando {len(docs)} archivos en lotes...")
+
+            lotes = [chunks[i:i+100] for i in range(0, len(chunks), 100)]
+            for lote_idx, lote in enumerate(lotes):
+                self.vector_store.add_documents(lote, batch_size=100)
+                # Aproximar documentos procesados basado en chunks
+                self.processed_documents = min(
+                    int((lote_idx + 1) * len(lote) / len(chunks) * len(docs)),
+                    len(docs)
+                )
+                print(f"Progreso: {self.processed_documents}/{len(docs)} documentos")
+
+            print(f"Reindexación completada. Total de chunks: {len(chunks)}")
+            return len(chunks)
+        except Exception as e:
+            print(f"Error durante reindexación: {e}")
             return 0
         finally:
             self.is_indexing = False

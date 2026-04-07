@@ -9,7 +9,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,6 +30,15 @@ async def start_ingestion(background_tasks: BackgroundTasks):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/reindex")
+async def reindex_documents(background_tasks: BackgroundTasks):
+    """Elimina todos los vectores existentes y vuelve a indexar desde cero"""
+    try:
+        background_tasks.add_task(rag_engine.reindex_all_documents)
+        return {"status": "Reindexing started", "message": "Deleting existing vectors and reindexing all PDF files."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/search")
 async def search(q: str):
     try:
@@ -41,15 +50,15 @@ async def search(q: str):
 @app.get("/status")
 async def get_status():
     count = await rag_engine.get_vector_count()
-    
+
     total_files = 0
-    path_a_contar = settings.PDF_PATH 
-    
+    path_a_contar = settings.PDF_PATH
+
     if os.path.exists(path_a_contar):
         for root, dirs, files in os.walk(path_a_contar):
             pdf_files = [f for f in files if f.lower().endswith('.pdf')]
             total_files += len(pdf_files)
-    
+
     return {
         "is_ready": count > 0,
         "total_vectors": count,

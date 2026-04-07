@@ -16,6 +16,14 @@ export default {
     return response.data;
   },
 
+  async reindex() {
+    const response = await fetch(`${API_URL}/reindex`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Error al iniciar la reindexación');
+    return response.json();
+  },
+
   buscarCandidatos(query) {
     return apiClient.get('/search', { params: { q: query } });
   },

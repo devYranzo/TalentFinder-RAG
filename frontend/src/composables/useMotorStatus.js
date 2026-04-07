@@ -71,6 +71,28 @@ export function useMotorStatus() {
     }
   };
 
+  const reindexar = async () => {
+    if (loadingIngest.value) return;
+
+    const confirmacion = confirm(
+      '⚠️ Esto eliminará todos los vectores existentes y volverá a indexar todos los CVs desde cero.\n\n¿Estás seguro de que deseas continuar?'
+    );
+
+    if (!confirmacion) return;
+
+    loadingIngest.value = true;
+    progreso.value = 0;
+    motorStatus.value.is_ready = false;
+
+    try {
+      await api.reindex();
+      iniciarIntervalo();
+    } catch (error) {
+      loadingIngest.value = false;
+      alert('No se pudo iniciar el proceso de reindexación.');
+    }
+  };
+
   onMounted(async () => {
     await checkStatus();
     if (motorStatus.value.is_indexing) {
@@ -88,5 +110,6 @@ export function useMotorStatus() {
     progreso,
     isReady,
     encenderMotor,
+    reindexar,
   };
 }
