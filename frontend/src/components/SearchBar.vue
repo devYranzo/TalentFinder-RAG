@@ -14,7 +14,7 @@ const emit = defineEmits(['update:modelValue', 'buscar']);
     <div class="col-lg-8">
       <div
         :class="[
-          'search-container shadow rounded-pill p-1 bg-white border border-light',
+          'search-container shadow rounded-pill p-1 bg-light border border-light',
           isReady ? 'd-flex' : 'd-none',
         ]"
       >

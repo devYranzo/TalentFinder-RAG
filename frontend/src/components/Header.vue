@@ -8,9 +8,13 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  isDark: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(['encender', 'reindexar']);
+const emit = defineEmits(['encender', 'reindexar', 'toggle-theme']);
 </script>
 
 <template>
@@ -40,6 +44,15 @@ const emit = defineEmits(['encender', 'reindexar']);
         >
           <i class="bi bi-arrow-clockwise me-1"></i>Reindexar CVs
         </button>
+
+        <!-- Theme Toggle Button -->
+        <button
+          @click="emit('toggle-theme')"
+          class="btn btn-outline-secondary btn-sm rounded-pill shadow p-2"
+          :title="isDark ? 'Modo claro' : 'Modo oscuro'"
+        >
+          <i :class="isDark ? 'bi bi-sun-fill' : 'bi bi-moon-fill'"></i>
+        </button>
       </div>
     </div>
 
@@ -48,7 +61,7 @@ const emit = defineEmits(['encender', 'reindexar']);
         <i class="bi bi-check-circle-fill me-2"></i>
         <strong>Sistema listo</strong> - Puedes realizar búsquedas
       </div>
-      <div v-else-if="!loadingIngest" class="col-4 alert alert-warning py-2 rounded-pill">
+      <div v-else-if="!loadingIngest" class="col-6 alert alert-warning py-2 rounded-pill">
         <i class="bi bi-exclamation-triangle-fill me-2"></i>
         <strong>Sistema sin indexar</strong> - Haz clic en "Indexar CVs" para comenzar
       </div>

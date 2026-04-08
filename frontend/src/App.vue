@@ -6,20 +6,23 @@ import ResultCard from './components/ResultCard.vue';
 
 import { useMotorStatus } from './composables/useMotorStatus';
 import { useSearch } from './composables/useSearch';
+import { useTheme } from './composables/useTheme';
 
 // --- Composables ---
 const { isReady, loadingIngest, progreso, encenderMotor, reindexar } = useMotorStatus();
 const { query, respuesta, loading, copiado, canSearch, buscar, copiarAlPortapapeles } =
   useSearch(isReady);
+const { isDark, toggleTheme } = useTheme();
 </script>
 
 <template>
   <div class="container pt-3">
     <Header
       :is-ready="isReady"
-      :loading-ingest="loadingIngest"
+      :is-dark="isDark"
       @encender="encenderMotor"
       @reindexar="reindexar"
+      @toggle-theme="toggleTheme"
     />
 
     <IngestProgress v-if="loadingIngest" :progreso="progreso" />
