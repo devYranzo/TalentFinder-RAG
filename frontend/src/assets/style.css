@@ -18,6 +18,11 @@ body {
   color: var(--text-dark);
 }
 
+[data-bs-theme='dark'] .bg-light {
+  background-color: var(--bg-dark) !important;
+  color: var(--text-dark);
+}
+
 [data-bs-theme='dark'] .text-dark {
   color: var(--text-dark) !important;
 }
