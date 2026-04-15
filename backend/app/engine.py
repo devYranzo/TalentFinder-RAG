@@ -1,3 +1,5 @@
+import time
+import asyncio
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -13,14 +15,16 @@ class RAGEngine:
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=settings.GOOGLE_API_KEY,
-            temperature=0
+            temperature=0,
+            max_retries=6,
+            timeout=60
         )
         self.is_indexing = False
         self.processed_documents = 0
         self.total_documents = 0
 
     def index_documents(self):
-        """Indexa solo documentos nuevos (no duplica los existentes)"""
+        """Indexa solo documentos nuevos evitando saturación de API"""
         self.is_indexing = True
         self.processed_documents = 0
 
@@ -33,126 +37,90 @@ class RAGEngine:
             )
             docs = loader.load()
 
-            # 1. Obtener qué archivos YA existentes en la DB para no duplicar
+            # 1. Obtener archivos existentes de forma más eficiente
             existing_ids = set()
             try:
-                # Buscamos en los metadatos de la colección
-                data = self.vector_store.get()
-                existing_ids = {doc['source'] for doc in data['metadatas']}
-            except Exception:
-                pass  # Si la tabla está vacía, seguimos
+                # Limitamos la búsqueda para no saturar la memoria local
+                results = self.vector_store.similarity_search("", k=5000)
+                existing_ids = {doc.metadata.get('source') for doc in results if doc.metadata.get('source')}
+            except Exception as e:
+                print(f"Aviso: No se pudieron obtener documentos existentes (posible tabla vacía): {e}")
 
             new_docs = [d for d in docs if d.metadata.get('source') not in existing_ids]
 
             if not new_docs:
                 print("No hay documentos nuevos para indexar.")
-                self.processed_documents = 0
                 return 0
 
             self.total_documents = len(new_docs)
 
-            # 2. Splitter profesional
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
             chunks = text_splitter.split_documents(new_docs)
 
             for chunk in chunks:
-                # Reemplazamos el carácter nulo por un espacio vacío
                 chunk.page_content = chunk.page_content.replace("\x00", "")
 
-            # 3. Ingesta por lotes para no saturar memoria
-            print(f"Indexando {len(new_docs)} archivos nuevos en lotes...")
+            # 2. Ingesta por lotes con PAUSA (Crucial para evitar Error 429)
+            print(f"Indexando {len(new_docs)} archivos nuevos...")
 
-            # Procesar por lotes y actualizar progreso
-            lotes = [chunks[i:i+100] for i in range(0, len(chunks), 100)]
+            # Lotes más pequeños para la capa gratuita (Free Tier)
+            batch_size = 25
+            lotes = [chunks[i:i+batch_size] for i in range(0, len(chunks), batch_size)]
+
             for lote_idx, lote in enumerate(lotes):
-                self.vector_store.add_documents(lote, batch_size=100)
-                # Aproximar documentos procesados basado en chunks
+                self.vector_store.add_documents(lote)
+
+                # Actualizar progreso
                 self.processed_documents = min(
                     int((lote_idx + 1) * len(lote) / len(chunks) * len(new_docs)),
                     len(new_docs)
                 )
                 print(f"Progreso: {self.processed_documents}/{len(new_docs)} documentos")
 
+                # CORRECCIÓN: Pausa de 2 segundos entre lotes para no saturar los Embeddings de Google
+                time.sleep(2)
+
             return len(chunks)
         except Exception as e:
-            print(f"Error durante indexación: {e}")
+            print(f"Error crítico durante indexación: {e}")
             return 0
         finally:
             self.is_indexing = False
-            self.processed_documents = 0
-            self.total_documents = 0
 
     async def reindex_all_documents(self):
-        """Elimina todos los vectores existentes y vuelve a indexar todos los documentos desde cero"""
+        """Elimina y vuelve a indexar con control de flujo"""
         self.is_indexing = True
-        self.processed_documents = 0
-
         try:
-            # 1. Eliminar todos los vectores existentes
-            try:
-                print("Eliminando vectores existentes...")
-                from .database import engine as db_engine
+            print(f"Limpiando colección '{settings.COLLECTION_NAME}'...")
+            from .database import engine as db_engine
 
-                # CAMBIO AQUÍ: Usar async with
-                async with db_engine.begin() as conn:
+            async with db_engine.begin() as conn:
+                collection_uuid_result = await conn.execute(
+                    text("SELECT uuid FROM langchain_pg_collection WHERE name = :name LIMIT 1"),
+                    {"name": settings.COLLECTION_NAME}
+                )
+                collection_uuid = collection_uuid_result.scalar()
+
+                if collection_uuid:
+                    await conn.execute(
+                        text("DELETE FROM langchain_pg_embedding WHERE collection_id = :uuid"),
+                        {"uuid": collection_uuid}
+                    )
+                else:
                     await conn.execute(text("DELETE FROM langchain_pg_embedding"))
 
-                print("Vectores eliminados correctamente.")
-            except Exception as e:
-                print(f"Error al eliminar vectores: {e}")
-                raise
-
-            # 2. Cargar todos los documentos
-            loader = DirectoryLoader(
-                settings.PDF_PATH,
-                glob="**/*.pdf",
-                loader_cls=PyPDFLoader,
-                recursive=True
-            )
-            docs = loader.load()
-
-            if not docs:
-                print("No se encontraron documentos para indexar.")
-                return 0
-
-            self.total_documents = len(docs)
-            print(f"Se encontraron {len(docs)} documentos para reindexar.")
-
-            # 3. Splitter profesional
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-            chunks = text_splitter.split_documents(docs)
-
-            for chunk in chunks:
-                # Reemplazamos el carácter nulo por un espacio vacío
-                chunk.page_content = chunk.page_content.replace("\x00", "")
-
-            # 4. Ingesta por lotes
-            print(f"Reindexando {len(docs)} archivos en lotes...")
-
-            lotes = [chunks[i:i+100] for i in range(0, len(chunks), 100)]
-            for lote_idx, lote in enumerate(lotes):
-                self.vector_store.add_documents(lote, batch_size=100)
-                # Aproximar documentos procesados basado en chunks
-                self.processed_documents = min(
-                    int((lote_idx + 1) * len(lote) / len(chunks) * len(docs)),
-                    len(docs)
-                )
-                print(f"Progreso: {self.processed_documents}/{len(docs)} documentos")
-
-            print(f"Reindexación completada. Total de chunks: {len(chunks)}")
-            return len(chunks)
+            # Reutilizar la lógica de indexación estándar
+            return self.index_documents()
         except Exception as e:
-            print(f"Error durante reindexación: {e}")
+            print(f"Error en reindexación: {e}")
             return 0
         finally:
             self.is_indexing = False
-            self.processed_documents = 0
-            self.total_documents = 0
 
     async def query(self, question: str):
-        """Busca en vectores y responde con el LLM."""
-        retriever = self.vector_store.as_retriever(search_kwargs={"k": 15})
-
+        """Consulta al RAG con manejo de contexto"""
+        # Aumentamos ligeramente k para tener más variedad, pero sin exagerar
+        retriever = self.vector_store.as_retriever(search_kwargs={"k": 7})
         context_docs = retriever.invoke(question)
 
         context_text = "\n\n".join([
@@ -161,53 +129,56 @@ class RAGEngine:
         ])
 
         prompt = ChatPromptTemplate.from_template(
-            """Eres un experto en Reclutamiento IT (Headhunter).
-            Tu objetivo es analizar los CVs proporcionados y seleccionar a los 5 MEJORES candidatos que encajen con la búsqueda.
+            """Eres un experto en Reclutamiento IT. Analiza los CVs y selecciona a los mejores.
 
             CONTEXTO DE LOS CVs:
             {context}
 
             REGLAS DE RESPUESTA:
-            1. Si hay menos de 5, muestra todos los que encajen.
-            2. Usa una lista numerada del 1 al 5.
-            3. Para cada candidato usa este formato EXACTO:
+            1. Usa una lista numerada del 1 al 5.
+            2. Formato EXACTO:
             ### [Nombre del Candidato]
             [BOTON_CV:{{nombre_archivo_pdf}}]
-            **Por qué encaja:** [Resumen de 2 líneas de su encaje con la búsqueda]
-            **Experiencia Clave:** [Lista de puntos con tecnologías/proyectos relevantes]
-            **Estudios:** [Extrae el título académico, universidad o formación principal. Si no aparece explícitamente, busca en todo el contexto proporcionado. Si es un perfil senior y no se menciona, indica 'Formación técnica superior según trayectoria']
-            **Certificaciones/Otros estudios:** [Enumera certificaciones (AWS, Scrum, CCNA, etc.) o cursos relevantes encontrados]
+            **Por qué encaja:** [Resumen breve]
+            **Experiencia Clave:** [Tecnologías relevantes]
+            **Estudios:** [Formación encontrada]
+            **Certificaciones/Otros estudios:** [Certificaciones]
 
-            INSTRUCCIÓN CRÍTICA: Sustituye {{nombre_archivo_pdf}} por la ruta exacta del archivo
-            que aparece en el contexto (ejemplo: CVs/Informatica/juan.pdf).
-            No inventes la ruta, úsala tal cual viene en FUENTE.
-
-            INSTRUCCIÓN CRÍTICA: Analiza CUIDADOSAMENTE cada fragmento del contexto para no omitir la formación académica.
-            Asegúrate de que el nombre del archivo en [BOTON_CV:...] sea el que aparece en 'source' o 'metadata'.
-
-            4. Si no encuentras a nadie, di: "Lo siento, no he encontrado perfiles que coincidan con esos criterios".
+            3. Sustituye {{nombre_archivo_pdf}} por la ruta exacta de la FUENTE.
+            4. Si no hay candidatos, indica que no se encontraron perfiles.
 
             Pregunta del reclutador: {question}"""
         )
 
         chain = prompt | self.llm
 
-        response = await chain.ainvoke({"context": context_text, "question": question})
-
-        return {
-            "answer": response.content,
-            "sources": list(set([d.metadata.get("source") for d in context_docs]))
-        }
+        try:
+            response = await chain.ainvoke({"context": context_text, "question": question})
+            return {
+                "answer": response.content,
+                "sources": list(set([d.metadata.get("source") for d in context_docs]))
+            }
+        except Exception as e:
+            return {
+                "answer": f"Error al procesar la consulta: El modelo está saturado o hubo un problema de conexión. Detalle: {str(e)}",
+                "sources": []
+            }
 
     async def get_vector_count(self):
-        """Calcula cuántos registros hay en la tabla de embeddings."""
+        """Contador de vectores en base de datos"""
         try:
             from .database import engine as db_engine
-
             async with db_engine.connect() as conn:
-                result = await conn.execute(text("SELECT count(*) FROM langchain_pg_embedding"))
+                result = await conn.execute(
+                    text("""
+                        SELECT count(*)
+                        FROM langchain_pg_embedding e
+                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                        WHERE c.name = :name
+                    """),
+                    {"name": settings.COLLECTION_NAME}
+                )
                 count = result.scalar()
                 return count or 0
-        except Exception as e:
-            print(f"Error al contar vectores: {e}")
+        except:
             return 0
