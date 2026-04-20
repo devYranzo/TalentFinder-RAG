@@ -1,9 +1,9 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI
 from app.engine import RAGEngine
 from app.config import settings
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -22,48 +22,47 @@ app.mount("/pdfs", StaticFiles(directory=settings.PDF_PATH), name="pdfs")
 # Instanciamos tu motor de búsqueda
 rag_engine = RAGEngine()
 
-@app.post("/ingest")
-async def start_ingestion(background_tasks: BackgroundTasks):
-    try:
-        background_tasks.add_task(rag_engine.index_documents)
-        return {"status": "Ingestion started", "message": "The system is processing PDF files."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/index/start")
+async def start_indexing():
+    """Inicia la indexación en background sin bloquear"""
+    return rag_engine.start_indexing_background()
 
-@app.post("/reindex")
-async def reindex_documents(background_tasks: BackgroundTasks):
-    """Elimina todos los vectores existentes y vuelve a indexar desde cero"""
-    try:
-        background_tasks.add_task(rag_engine.reindex_all_documents)
-        return {"status": "Reindexing started", "message": "Deleting existing vectors and reindexing all PDF files."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/index/status")
+async def get_indexing_status():
+    """Obtiene el estado de la indexación en progreso"""
+    return rag_engine.get_indexing_status()
 
-@app.get("/search")
-async def search(q: str):
-    try:
-        return await rag_engine.query(q)
-    except Exception as e:
-        print(f"Error detectado: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/index/reindex")
+async def reindex_all():
+    """Elimina todo y reindexa desde cero"""
+    return await rag_engine.reindex_all_documents()
 
-@app.get("/status")
-async def get_status():
-    count = await rag_engine.get_vector_count()
+# ============================================
+# ENDPOINT PARA CONSULTAS (OPTIMIZADO)
+# ============================================
 
-    total_files = 0
-    path_a_contar = settings.PDF_PATH
+class QueryRequest(BaseModel):
+    question: str
 
-    if os.path.exists(path_a_contar):
-        for root, dirs, files in os.walk(path_a_contar):
-            pdf_files = [f for f in files if f.lower().endswith('.pdf')]
-            total_files += len(pdf_files)
+@app.post("/query")
+async def query_rag(request: QueryRequest):
+    """Consulta optimizada al RAG con cache"""
+    return await rag_engine.query(request.question)
+
+@app.get("/stats")
+async def get_stats():
+    """Estadísticas del sistema"""
+    vector_count = await rag_engine.get_vector_count()
+    indexing_status = rag_engine.get_indexing_status()
 
     return {
-        "is_ready": count > 0,
-        "total_vectors": count,
-        "total_files": total_files,
-        "is_indexing": rag_engine.is_indexing,
-        "processed_documents": rag_engine.processed_documents,
-        "total_documents": rag_engine.total_documents
+        "vectors_count": vector_count,
+        "indexing": indexing_status,
+        "cache_size": len(rag_engine._query_cache)
     }
+
+@app.post("/cache/clear")
+async def clear_cache():
+    """Limpia la cache de consultas"""
+    rag_engine.clear_cache()
+    return {"status": "cache_cleared"}

@@ -1,34 +1,31 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://192.168.20.140:8000',
+  baseURL: 'http://192.168.20.208:8000',
   headers: { 'Content-Type': 'application/json' },
 });
 
 export default {
   async getStatus() {
-    const response = await apiClient.get('/status');
+    const response = await apiClient.get('/index/status');
     return response.data;
   },
 
   async startIngest() {
-    const response = await apiClient.post('/ingest');
+    const response = await apiClient.post('/index/start');
     return response.data;
   },
 
   async reindex() {
-    const response = await fetch(`${API_URL}/reindex`, {
-      method: 'POST',
-    });
-    if (!response.ok) throw new Error('Error al iniciar la reindexación');
-    return response.json();
+    const response = await apiClient.post('/index/reindex');
+    return response.data;
   },
 
-  buscarCandidatos(query) {
-    return apiClient.get('/search', { params: { q: query } });
+  async buscarCandidatos(query) {
+    return apiClient.post('/query', { question: query });
   },
 
-  getPdfUrl(ruta) {
+  async getPdfUrl(ruta) {
     const rutaLimpia = ruta.replace(/^CVs\//, '');
     return `${apiClient.defaults.baseURL}/pdfs/${rutaLimpia}`;
   },
