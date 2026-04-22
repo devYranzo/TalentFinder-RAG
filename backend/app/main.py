@@ -30,7 +30,7 @@ async def start_indexing():
 @app.get("/index/status")
 async def get_indexing_status():
     """Obtiene el estado de la indexación en progreso"""
-    return rag_engine.get_indexing_status()
+    return await rag_engine.get_indexing_status_complete()
 
 @app.post("/index/reindex")
 async def reindex_all():
@@ -53,13 +53,18 @@ async def query_rag(request: QueryRequest):
 async def get_stats():
     """Estadísticas del sistema"""
     vector_count = await rag_engine.get_vector_count()
+    document_count = await rag_engine.get_indexed_documents_count()
+    is_indexed = await rag_engine.is_indexed()
     indexing_status = rag_engine.get_indexing_status()
 
     return {
+        "is_indexed": is_indexed,
         "vectors_count": vector_count,
+        "documents_count": document_count,
         "indexing": indexing_status,
         "cache_size": len(rag_engine._query_cache)
     }
+
 
 @app.post("/cache/clear")
 async def clear_cache():

@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://192.168.20.208:8000',
+  baseURL: 'http://192.168.20.131:8000',
   headers: { 'Content-Type': 'application/json' },
+  timeout: 50000,
 });
 
 export default {
@@ -22,10 +23,12 @@ export default {
   },
 
   async buscarCandidatos(query) {
-    return apiClient.post('/query', { question: query });
+    const response = await apiClient.post('/query', { question: query });
+
+    return response;
   },
 
-  async getPdfUrl(ruta) {
+  getPdfUrl(ruta) {
     const rutaLimpia = ruta.replace(/^CVs\//, '');
     return `${apiClient.defaults.baseURL}/pdfs/${rutaLimpia}`;
   },

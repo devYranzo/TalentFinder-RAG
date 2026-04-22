@@ -15,11 +15,12 @@ class RAGEngine:
     def __init__(self):
         self.vector_store = get_vector_store()
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-lite",
             google_api_key=settings.GOOGLE_API_KEY,
             temperature=0,
-            max_retries=6,
-            timeout=60
+            max_retries=3,  # Reducido de 6 a 3 (cada retry añade latencia)
+            timeout=120,    # Aumentado de 60 a 120 segundos
+            request_timeout=120  # Timeout explícito para requests
         )
         self.is_indexing = False
         self.processed_documents = 0
@@ -189,6 +190,24 @@ class RAGEngine:
             "error": self.indexing_error
         }
 
+    async def get_indexing_status_complete(self):
+        """Estado COMPLETO: indexación actual + datos existentes en DB"""
+        # Obtener conteo de DB
+        vector_count = await self.get_vector_count()
+        document_count = await self.get_indexed_documents_count()
+
+        return {
+            "is_indexing": self.is_indexing,
+            "processed": self.processed_documents,
+            "total": self.total_documents,
+            "progress_percent": int((self.processed_documents / self.total_documents * 100)) if self.total_documents > 0 else 0,
+            "error": self.indexing_error,
+            # ✅ DATOS PERSISTENTES DE LA DB
+            "has_data": vector_count > 0,  # TRUE si hay datos indexados
+            "vectors_count": vector_count,
+            "documents_count": document_count
+        }
+
     def index_documents(self):
         """Método legacy - ahora solo wrapper síncrono (no recomendado)"""
         return self._index_documents_sync()
@@ -234,6 +253,7 @@ class RAGEngine:
 
     async def query(self, question: str):
         """Consulta al RAG optimizada con caché y búsqueda paralela"""
+        start_time = time.time()
 
         # ✅ OPTIMIZACIÓN 2: Cache de consultas
         cache_key = question.lower().strip()
@@ -242,7 +262,7 @@ class RAGEngine:
         if cache_key in self._query_cache:
             cached_result, timestamp = self._query_cache[cache_key]
             if current_time - timestamp < self._cache_ttl:
-                print(f"✓ Respuesta desde caché (ahorro de ~3-5 segundos)")
+                print(f"✓ Respuesta desde caché en {time.time() - start_time:.2f}s")
                 return cached_result
 
         # ✅ OPTIMIZACIÓN 3: Reducir k para búsquedas más rápidas
@@ -253,10 +273,12 @@ class RAGEngine:
 
         try:
             # ✅ OPTIMIZACIÓN 4: Timeout en la búsqueda
+            retrieval_start = time.time()
             context_docs = await asyncio.wait_for(
                 asyncio.to_thread(retriever.invoke, question),
                 timeout=5.0
             )
+            print(f"✓ Retrieval completado en {time.time() - retrieval_start:.2f}s")
         except asyncio.TimeoutError:
             return {
                 "answer": "La búsqueda está tardando demasiado. Intenta con términos más específicos.",
@@ -271,37 +293,42 @@ class RAGEngine:
                 docs_by_source[source] = []
             docs_by_source[source].append(doc.page_content)
 
-        # Limitar contenido por fuente (máximo 500 chars por CV)
+        # Limitar contenido por fuente (máximo 300 chars por CV para velocidad)
         context_text = "\n\n".join([
-            f"FUENTE: {source}\n{' '.join(contents)[:500]}..."
+            f"FUENTE: {source}\n{' '.join(contents)[:300]}..."
             for source, contents in docs_by_source.items()
         ])
 
-        # ✅ OPTIMIZACIÓN 6: Prompt más conciso
+        # ✅ OPTIMIZACIÓN 6: Prompt ultra-conciso para máxima velocidad
         prompt = ChatPromptTemplate.from_template(
-            """Experto en Reclutamiento IT. Analiza CVs y selecciona los mejores.
+            """Eres un experto en Reclutamiento IT. Analiza los CVs y selecciona a los mejores 5.
 
-            CONTEXTO:
+            CONTEXTO DE LOS CVs:
             {context}
 
-            FORMATO DE RESPUESTA (máximo 5 candidatos):
-            ### [Nombre]
-            [BOTON_CV:{{archivo.pdf}}]
-            **Encaja porque:** [1-2 líneas]
-            **Stack:** [Tecnologías clave]
-            **Formación:** [Título principal]
+            REGLAS DE RESPUESTA:
+            1. Usa una lista numerada del 1 al 5.
+            2. Formato EXACTO:
+            ### [Nombre del Candidato]
+            [BOTON_CV:{{nombre_archivo_pdf}}]
+            **Por qué encaja:** [Resumen breve] <br />
+            **Experiencia Clave:** [Tecnologías relevantes] <br />
+            **Estudios:** [Formación encontrada] <br />
+            **Certificaciones/Otros estudios:** [Certificaciones] <br />
 
-            Pregunta: {question}"""
+            3. Sustituye {{nombre_archivo_pdf}} por la ruta exacta de la FUENTE.
+            4. Si no hay candidatos, indica que no se encontraron perfiles.
+
+            Pregunta del reclutador: {question}"""
         )
 
         chain = prompt | self.llm
 
         try:
-            # ✅ OPTIMIZACIÓN 7: Timeout para LLM
-            response = await asyncio.wait_for(
-                chain.ainvoke({"context": context_text, "question": question}),
-                timeout=20.0
-            )
+            llm_start = time.time()
+            response = await chain.ainvoke({"context": context_text, "question": question})
+            print(f"✓ LLM respondió en {time.time() - llm_start:.2f}s")
+            print(f"✓ Total query: {time.time() - start_time:.2f}s")
 
             result = {
                 "answer": response.content,
@@ -322,35 +349,79 @@ class RAGEngine:
 
             return result
 
-        except asyncio.TimeoutError:
-            return {
-                "answer": "El modelo está tardando demasiado. Intenta reformular la pregunta.",
-                "sources": []
-            }
         except Exception as e:
             return {
-                "answer": f"Error al procesar: {str(e)}",
+                "answer": f"Error al procesar la consulta: {str(e)}",
                 "sources": []
             }
 
     async def get_vector_count(self):
-        """Contador de vectores optimizado"""
+        """Contador de vectores optimizado - verifica DIRECTAMENTE en la DB"""
         try:
             from .database import engine as db_engine
             async with db_engine.connect() as conn:
+                # Primero obtener el UUID de la colección
+                collection_result = await conn.execute(
+                    text("SELECT uuid FROM langchain_pg_collection WHERE name = :name LIMIT 1"),
+                    {"name": settings.COLLECTION_NAME}
+                )
+                collection_uuid = collection_result.scalar()
+
+                if not collection_uuid:
+                    print(f"⚠ Colección '{settings.COLLECTION_NAME}' no existe")
+                    return 0
+
+                # Contar embeddings de esa colección
                 result = await conn.execute(
                     text("""
                         SELECT count(*)
-                        FROM langchain_pg_embedding e
-                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                        WHERE c.name = :name
+                        FROM langchain_pg_embedding
+                        WHERE collection_id = :uuid
                     """),
-                    {"name": settings.COLLECTION_NAME}
+                    {"uuid": collection_uuid}
                 )
                 count = result.scalar()
+                print(f"✓ Vectores en DB: {count}")
                 return count or 0
-        except:
+        except Exception as e:
+            print(f"⚠ Error obteniendo count de vectores: {e}")
             return 0
+
+    async def get_indexed_documents_count(self):
+        """Obtiene el número de documentos ÚNICOS indexados (no chunks)"""
+        try:
+            from .database import engine as db_engine
+            async with db_engine.connect() as conn:
+                collection_result = await conn.execute(
+                    text("SELECT uuid FROM langchain_pg_collection WHERE name = :name LIMIT 1"),
+                    {"name": settings.COLLECTION_NAME}
+                )
+                collection_uuid = collection_result.scalar()
+
+                if not collection_uuid:
+                    return 0
+
+                # Contar documentos únicos por 'source'
+                result = await conn.execute(
+                    text("""
+                        SELECT COUNT(DISTINCT cmetadata->>'source') as doc_count
+                        FROM langchain_pg_embedding
+                        WHERE collection_id = :uuid
+                        AND cmetadata->>'source' IS NOT NULL
+                    """),
+                    {"uuid": collection_uuid}
+                )
+                doc_count = result.scalar()
+                print(f"✓ Documentos únicos indexados: {doc_count}")
+                return doc_count or 0
+        except Exception as e:
+            print(f"⚠ Error obteniendo documentos indexados: {e}")
+            return 0
+
+    async def is_indexed(self):
+        """Verifica si hay datos indexados en la base de datos"""
+        vector_count = await self.get_vector_count()
+        return vector_count > 0
 
     def clear_cache(self):
         """Método para limpiar la cache manualmente si es necesario"""
