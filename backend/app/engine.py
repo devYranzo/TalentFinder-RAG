@@ -263,3 +263,21 @@ class RAGEngine:
             "progress_percent": int((self.processed_documents/self.total_documents*100)) if self.total_documents > 0 else 0,
             "error": self.indexing_error
         }
+
+    async def reindex_all_documents(self):
+        """Elimina todo y vuelve a indexar"""
+        try:
+            sync_engine = self._get_sync_engine()
+            with sync_engine.connect() as conn:
+                conn.execute(text("DELETE FROM langchain_pg_embedding"))
+                conn.commit()
+            return self.start_indexing_background()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    async def is_indexed(self) -> bool:
+        return await self.get_vector_count() > 0
+
+    def clear_cache(self):
+        self._query_cache.clear()
+        return {"status": "cache_cleared"}
