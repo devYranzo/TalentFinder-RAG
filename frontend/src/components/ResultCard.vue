@@ -46,7 +46,7 @@ const renderizarRespuesta = (texto) => {
           >
             <div class="d-flex align-items-center">
               <i class="bi bi-stars fs-4 me-2"></i>
-              <h5 class="mb-0 fw-bold">Análisis de los Mejores Candidatos</h5>
+              <h5 class="mb-0 fw-bold">Análisis del top 5 <b>Mejores Candidatos</b></h5>
             </div>
 
             <button
