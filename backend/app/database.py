@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_postgres.vectorstores import PGVector
 from langchain_huggingface import HuggingFaceEmbeddings
-from .config import settings
+from config import settings
 
 # Motor asíncrono para operaciones directas en la base de datos
 engine = create_async_engine(settings.DATABASE_URL.replace("postgresql+psycopg://", "postgresql+asyncpg://"))

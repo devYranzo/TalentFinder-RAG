@@ -25,7 +25,9 @@ services:
     env_file:
       - ./backend/.env
     volumes:
-      - ./backend/CVs:/app/CVs
+      - ./backend/storage/CVs:/app/storage/CVs
+    environment:
+      - PDF_PATH=/app/storage/CVs
     networks:
       - rag_network
 

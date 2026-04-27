@@ -1,14 +1,20 @@
 import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
-load_dotenv()
-
-class Settings:
-    PROJECT_NAME: str = "Recruitment RAG API"
-    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY")
-    DATABASE_URL: str = "postgresql+psycopg://myuser:mypassword@db:5432/rag_db"
+class Settings(BaseSettings):
+    """ Database configuration """
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     COLLECTION_NAME: str = "cv_vectors"
+
+    """ AI Models """
     EMBEDDING_MODEL: str = "intfloat/multilingual-e5-small"
-    PDF_PATH: str = "./CVs"
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+
+    """ CVs directory """
+    PDF_PATH: str = "/storage/CVs"
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
 settings = Settings()

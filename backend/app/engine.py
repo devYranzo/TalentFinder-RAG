@@ -8,8 +8,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from sqlalchemy import text, create_engine
 
-from .config import settings
-from .database import get_vector_store
+from config import settings
+from database import get_vector_store
+from database import engine as db_engine
 
 class RAGEngine:
     def __init__(self):
@@ -236,7 +237,6 @@ class RAGEngine:
     # --- Métodos de utilidad de engine.py ---
     async def get_vector_count(self):
         try:
-            from .database import engine as db_engine
             async with db_engine.connect() as conn:
                 res = await conn.execute(text("SELECT count(*) FROM langchain_pg_embedding"))
                 return res.scalar() or 0
@@ -244,7 +244,6 @@ class RAGEngine:
 
     async def get_indexed_documents_count(self):
         try:
-            from .database import engine as db_engine
             async with db_engine.connect() as conn:
                 res = await conn.execute(text("SELECT count(DISTINCT cmetadata->>'source') FROM langchain_pg_embedding"))
                 return res.scalar() or 0
@@ -286,3 +285,5 @@ class RAGEngine:
     def clear_cache(self):
         self._query_cache.clear()
         return {"status": "cache_cleared"}
+
+rag_engine = RAGEngine()
