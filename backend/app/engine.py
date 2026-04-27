@@ -81,7 +81,7 @@ class RAGEngine:
             if not new_docs: return 0
 
             self.total_documents = len(new_docs)
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
             chunks = text_splitter.split_documents(new_docs)
 
             for chunk in chunks:
@@ -138,7 +138,7 @@ class RAGEngine:
 
         retriever = self.vector_store.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 10, "fetch_k": 25, "lambda_mult": 0.7}
+            search_kwargs={"k": 15, "fetch_k": 35, "lambda_mult": 0.7}
         )
 
         try:
@@ -181,9 +181,10 @@ class RAGEngine:
             FORMATO POR CANDIDATO (Repetir exactamente 5 veces):
             ### [Nombre y Apellidos]
             [BOTON_CV:{{filename}}]
-            **Por qué encaja:** [Explicación detallada de su ranking] <br />
-            **Experiencia:** [Tecnologías clave] <br />
-            **Estudios:** [Estudios reglados] <br />
+            **Por qué encaja:** [Explica por qué encaja técnica y culturalmente] <br /> <br />
+            **Experiencia laboral:** [Años exp.] | [Cargo actual] | [Idiomas] <br />
+            **Stack Técnico:** [Tecnologías mencionadas en el CV] <br />
+            **Educación:** [Grado/Máster más alto] <br />
 
             ---
             DATOS DE LOS CVS:
@@ -192,6 +193,10 @@ class RAGEngine:
             SOLICITUD: {question}
 
             IMPORTANTE: En {{filename}} pon la ruta exacta que aparece en "ARCHIVO ORIGEN".
+
+            INSTRUCCIONES DE EXTRACCIÓN:
+            1. EDUCACIÓN: Busca palabras como "Grado", "Licenciatura", "Formación Profesional" o "Educación Secundaria". Suele estar después de la experiencia laboral.
+            2. Si no lo encuentras a la primera, lee todo el texto proporcionado antes de poner 'No especificado'.
             """
         )
 
