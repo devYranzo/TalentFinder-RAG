@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from config import settings
-from routes import index, search, system, admin
+from routes import index, search, system, file_manager
 
 app = FastAPI(title="TalentFinder API")
 
@@ -21,4 +21,4 @@ app.mount("/pdfs", StaticFiles(directory=settings.PDF_PATH), name="pdfs")
 app.include_router(index.router)
 app.include_router(search.router)
 app.include_router(system.router)
-# app.include_router(admin.router)
+app.include_router(file_manager.router)

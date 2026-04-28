@@ -1,22 +1,14 @@
-<script setup>
+<script setup lang="ts">
 import Header from './components/Header.vue';
-import IngestProgress from './components/IngestProgress.vue';
-import SearchBar from './components/SearchBar.vue';
-import ResultCard from './components/ResultCard.vue';
+import { useMotorStatus } from '@/composables/useMotorStatus';
+import { useTheme } from '@/composables/useTheme';
 
-import { useMotorStatus } from './composables/useMotorStatus';
-import { useSearch } from './composables/useSearch';
-import { useTheme } from './composables/useTheme';
-
-// --- Composables ---
-const { isReady, loadingIngest, progreso, encenderMotor, reindexar } = useMotorStatus();
-const { query, respuesta, loading, copiado, canSearch, buscar, copiarAlPortapapeles } =
-  useSearch(isReady);
+const { isReady, encenderMotor, reindexar } = useMotorStatus();
 const { isDark, toggleTheme } = useTheme();
 </script>
 
 <template>
-  <div class="container pt-3">
+  <main class="container">
     <Header
       :is-ready="isReady"
       :is-dark="isDark"
@@ -24,23 +16,17 @@ const { isDark, toggleTheme } = useTheme();
       @reindexar="reindexar"
       @toggle-theme="toggleTheme"
     />
-
-    <IngestProgress v-if="loadingIngest" :progreso="progreso" />
-
-    <SearchBar
-      v-model="query"
-      :is-ready="isReady"
-      :loading="loading"
-      :can-search="canSearch"
-      @buscar="buscar"
-    />
-
-    <ResultCard :respuesta="respuesta" :copiado="copiado" @copiar="copiarAlPortapapeles" />
-  </div>
+    <router-view />
+  </main>
 </template>
 
 <style>
 .container {
   max-width: 1100px;
+}
+/* Estilo para saber qué link está activo */
+.router-link-active {
+  color: #fff !important;
+  font-weight: bold;
 }
 </style>

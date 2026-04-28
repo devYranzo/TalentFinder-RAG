@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import App from './App.vue';
 import 'bootstrap-icons/font/bootstrap-icons.css';
+import router from './router';
 
 // Initialize theme on app load
 const initializeTheme = () => {
@@ -18,4 +19,4 @@ const initializeTheme = () => {
 
 initializeTheme();
 
-createApp(App).mount('#app');
+createApp(App).use(router).mount('#app');

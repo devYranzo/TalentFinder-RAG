@@ -11,8 +11,6 @@ defineProps({
 
 defineEmits(['copiar']);
 
-// Registramos la función globalmente para que los botones generados dinámicamente
-// dentro del HTML renderizado puedan invocarla.
 window.abrirArchivoCV = (ruta) => {
   const url = api.getPdfUrl(ruta);
   window.open(url, '_blank');
